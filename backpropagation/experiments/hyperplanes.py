@@ -7,10 +7,10 @@ import numpy as np
 from beartype import beartype
 from jaxtyping import Float64, jaxtyped  # type: ignore
 
-from network import FFNeuralNetwork
-from metric_functions import MetricFunction
+from network import *
+from metric_functions import *
 
-# Silence Matplotlib debug logs globally
+# Silence Matplotlib debug logs 
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 @jaxtyped(typechecker=beartype)
@@ -148,56 +148,76 @@ def visualize_hyperplane_dataset(
         except Exception:
             pass
 
-    save_path = f"hyperplane_vis_{num_features}d{save_suffix}.png"
+    save_path = f"hyperplane_vis_{num_features}D{save_suffix}.png"
     plt.savefig(save_path)
     print(f"Visualization saved to {save_path}")
     plt.close(fig)
 
 
-def initialise_for_hyperplanes(features: int, hyperplanes_needed: int, lr: float = 0.02) -> FFNeuralNetwork:
-    # Metric function: Accuracy for binary classification
-   
+# TODO: adapt FFNN to specify nontrainable layers to keep the AND and OR layers fixed
+# def initialise_for_hyperplanes(
+#         features: int, 
+#         hyperplanes_needed: int, 
+#         lr: float = 0.02,
+#         momentum_gamma: float = 0.9
+#         ) -> FFNeuralNetwork:
+#     l1 = ProcessingLayer.initialise_with_random_parameters(hyperplanes_needed, features)
 
-    # Basic heuristic: [#features, hyperplanes, logic_gates, 1]
-    return FFNeuralNetwork(
-        layer_sizes=[features, hyperplanes_needed, 2 ** hyperplanes_needed, 1],
-        learning_rate=lr,
-        metric_function=MetricFunction(name="Accuracy", _function=lambda preds, labels: ((preds > 0.5) == labels).mean())
-    )
+#     num_regions = 2 ** hyperplanes_needed
+
+    
+#     # AND layer
+#     bits = np.arange(hyperplanes_needed)
+#     combinations = (np.arange(num_regions)[:, np.newaxis] >> bits) & 1 
+    
+#     l2_weights = np.where(combinations == 1, 1.0, -1.0)
+    
+#     l2_biases = -(np.sum(np.abs(l2_weights), axis=1) - 0.5)
+#     l2 = ProcessingLayer(weights=l2_weights, biases=l2_biases)
+
+#     # OR layer
+#     l3 = ProcessingLayer(weights=np.ones((1, num_regions)), biases=np.array([-0.5]))
+
+#     # Final Output layer (Random)
+#     l4 = ProcessingLayer.initialise_with_random_parameters(1, 1, weights_std=0.1)
+
+#     return FFNeuralNetwork(
+#         processing_layers=[l1, l2, l3, l4],
+#         learning_rate=lr,
+#         momentum_gamma=momentum_gamma,
+#         metric_function=f1_score_metric
+#     )
 
 
 
 if __name__ == "__main__":
-    # Configure logging to write to both file and terminal
     logging.basicConfig(
         level=logging.INFO,
-        # filename="training_log.txt",
+        filename="perceptron_training.log",
+        filemode='w',
         )
 
-    num_features = 2
-    num_hyperplanes = 1
+    num_features = 3
+    num_hyperplanes = 5
 
-    # Generate data BUT disable plotting inside the generator
     features, labels, hp_n, hp_o = generate_hyperplane_dataset(
-        num_instances=1000, 
+        num_instances=2000, 
         num_features=num_features, 
         num_hyperplanes=num_hyperplanes, 
         complexity=0.5,
         plot=False
     )
 
-    # model = initialise_for_hyperplanes(features=num_features, hyperplanes_needed=num_hyperplanes, lr=0.1)
-    model = FFNeuralNetwork(
-        layer_sizes=[num_features, 1],
-        learning_rate=0.1,
-        metric_function=MetricFunction(name="Accuracy", _function=lambda preds, labels: ((preds > 0.5) == labels).mean())
+    # model = initialise_for_hyperplanes(num_features, num_hyperplanes, lr=0.1)
+    model = FFNeuralNetwork.initialise_with_random_small_parameters(
+        layer_sizes=[num_features, 8, 4, 4, 1],
+        metric_function=get_binary_accuracy_metric(threshold=0.5),
+        weights_std=1.0,
+        biases_std=1.0
     )
+    
+    model.fit(features, labels, epochs=150, batch_size=64, learning_rate=0.1, momentum_gamma=0.9)
 
-    # Train
-    model.fit(features, labels, epochs=200, batch_size=32)
-
-    # Visualization in the end with model hyperplanes
-    # We grab the weights/biases from the first layer which represent hyperplanes
     first_layer = model.processing_layers[0]
     model_hp = (first_layer.weights, first_layer.biases)
 
@@ -206,6 +226,3 @@ if __name__ == "__main__":
         model_hyperplanes=model_hp,
         save_suffix="_final"
     )
-    
-
-    model.fit(features, labels, epochs=100, batch_size=32)

@@ -33,20 +33,20 @@ def get_step_function(threshold: float) -> ActivationFunction:
     )
 
 
-def get_stable_sigmoid_activation() -> ActivationFunction:
+def get_stable_sigmoid_activation(intercept: float = 0.5) -> ActivationFunction:
     return ActivationFunction(
         name="Stable Sigmoid",
-        _function=stable_sigmoid,
+        _function=lambda x: stable_sigmoid(x, intercept),
         _derivative=lambda x: x * (1 - x),  # can use activations directly
         pass_activations_to_derivative=True
     )
 
-def stable_sigmoid(net_inputs: Float64[np.ndarray, "layer_size batch_size"]) -> Float64[np.ndarray, "layer_size batch_size"]:
-    # avoid large exponentials for large negative numbers to avoid overflow
+def stable_sigmoid(net_inputs: Float64[np.ndarray, "layer_size batch_size"], intercept: float = 0.5) -> Float64[np.ndarray, "layer_size batch_size"]:
+    # we cliü to avoid large exponentials for large negative numbers to avoid overflow
 
     net_inputs = np.clip(net_inputs, -100, 100)
 
-    return 1 / (1 + np.exp(-net_inputs))
+    return (1 / (1 + np.exp(-net_inputs))) + (intercept - 0.5)
                     
 
 
