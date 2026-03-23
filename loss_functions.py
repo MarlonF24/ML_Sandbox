@@ -34,6 +34,14 @@ squareLossFunction = LossFunction(
         _derivative=lambda predicted, target: predicted - target
     )
 
+cross_entropy_loss_function = LossFunction(
+    name="Cross Entropy Loss",
+    _function=lambda predicted, target: -np.sum(target * np.log(predicted + 1e-10), axis=1), 
+    _derivative=lambda predicted, target: -target / (predicted + 1e-10)
+)
+
+
+
 if __name__ == "__main__":
     loss_function = squareLossFunction
 

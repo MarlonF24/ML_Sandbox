@@ -154,13 +154,13 @@ def visualize_hyperplane_dataset(
     plt.close(fig)
 
 
-# TODO: adapt FFNN to specify nontrainable layers to keep the AND and OR layers fixed
 # def initialise_for_hyperplanes(
 #         features: int, 
 #         hyperplanes_needed: int, 
 #         lr: float = 0.02,
 #         momentum_gamma: float = 0.9
 #         ) -> FFNeuralNetwork:
+    
 #     l1 = ProcessingLayer.initialise_with_random_parameters(hyperplanes_needed, features)
 
 #     num_regions = 2 ** hyperplanes_needed
@@ -173,19 +173,17 @@ def visualize_hyperplane_dataset(
 #     l2_weights = np.where(combinations == 1, 1.0, -1.0)
     
 #     l2_biases = -(np.sum(np.abs(l2_weights), axis=1) - 0.5)
-#     l2 = ProcessingLayer(weights=l2_weights, biases=l2_biases)
+#     l2 = ProcessingLayer(weights=l2_weights, biases=l2_biases, trainable=False)
 
 #     # OR layer
-#     l3 = ProcessingLayer(weights=np.ones((1, num_regions)), biases=np.array([-0.5]))
+#     l3 = ProcessingLayer(weights=np.ones((1, num_regions)), biases=np.array([-0.5]), trainable=False)
 
-#     # Final Output layer (Random)
+#     # Final Output layer
 #     l4 = ProcessingLayer.initialise_with_random_parameters(1, 1, weights_std=0.1)
 
 #     return FFNeuralNetwork(
 #         processing_layers=[l1, l2, l3, l4],
-#         learning_rate=lr,
-#         momentum_gamma=momentum_gamma,
-#         metric_function=f1_score_metric
+#         metric_function=get_f1_score_metric()
 #     )
 
 
@@ -193,11 +191,11 @@ def visualize_hyperplane_dataset(
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
-        filename="perceptron_training.log",
+        # filename="hyperplanes_training.log",
         filemode='w',
         )
 
-    num_features = 3
+    num_features = 2
     num_hyperplanes = 5
 
     features, labels, hp_n, hp_o = generate_hyperplane_dataset(
@@ -208,9 +206,10 @@ if __name__ == "__main__":
         plot=False
     )
 
-    # model = initialise_for_hyperplanes(num_features, num_hyperplanes, lr=0.1)
     model = FFNeuralNetwork.initialise_with_random_small_parameters(
         layer_sizes=[num_features, 8, 4, 4, 1],
+        activation_function=get_stable_sigmoid_activation(intercept=0.5),
+        loss_function=squareLossFunction,
         metric_function=get_binary_accuracy_metric(threshold=0.5),
         weights_std=1.0,
         biases_std=1.0
@@ -218,11 +217,11 @@ if __name__ == "__main__":
     
     model.fit(features, labels, epochs=150, batch_size=64, learning_rate=0.1, momentum_gamma=0.9)
 
-    first_layer = model.processing_layers[0]
-    model_hp = (first_layer.weights, first_layer.biases)
+    # first_layer = model.processing_layers[0]
+    # model_hp = (first_layer.weights, first_layer.biases)
 
     visualize_hyperplane_dataset(
         features, labels, hp_n, hp_o, 
-        model_hyperplanes=model_hp,
+        # model_hyperplanes=model_hp,
         save_suffix="_final"
     )

@@ -50,8 +50,7 @@ def stable_sigmoid(net_inputs: Float64[np.ndarray, "layer_size batch_size"], int
                     
 
 
-def get_relu_activation() -> ActivationFunction:
-    return ActivationFunction(
+relu_activation = ActivationFunction(
         name="ReLU",
         _function=lambda x : np.maximum(0, x),
         _derivative=lambda x: (x > 0).astype(np.float64),

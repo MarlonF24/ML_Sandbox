@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 
 from activation_functions import *
 from loss_functions import *
@@ -21,6 +23,8 @@ npt = np.typing
 class ProcessingLayer:
     weights: Float64[np.ndarray, "curr_layer_size prev_layer_size"]
     biases: Float64[np.ndarray, "curr_layer_size"]
+    activation_function: ActivationFunction = relu_activation
+    trainable: bool = True
 
     @classmethod
     def initialise_with_random_parameters(cls, 
@@ -29,11 +33,13 @@ class ProcessingLayer:
                                           weights_mean: float = 0,
                                           weights_std: float = 0.1,
                                           biases_mean: float = 0,
-                                          biases_std: float = 0.1
+                                          biases_std: float = 0.1,
+                                          activation_function: ActivationFunction = relu_activation
                                           ) -> "ProcessingLayer":
         return cls(
             weights=np.random.normal(weights_mean, weights_std, (curr_layer_size, prev_layer_size),),
-            biases=np.random.normal(biases_mean, biases_std, curr_layer_size)
+            biases=np.random.normal(biases_mean, biases_std, curr_layer_size),
+            activation_function=activation_function
         )
 
 
@@ -42,6 +48,7 @@ class ProcessingLayer:
 class FFLayerData:
     net_inputs: Float64[np.ndarray, "layer_size batch_size"] | None # None for input layer, as no net inputs
     activations: Float64[np.ndarray, "layer_size batch_size"]
+
 
 @jaxtyped(typechecker=beartype)
 @dataclass
@@ -62,7 +69,6 @@ class FFNeuralNetwork:
     """
     
     processing_layers: list[ProcessingLayer]
-    activation_function: ActivationFunction = get_stable_sigmoid_activation()
     loss_function: LossFunction = squareLossFunction
     metric_function: MetricFunction | None = None
 
@@ -70,23 +76,33 @@ class FFNeuralNetwork:
     @classmethod
     def initialise_with_random_small_parameters(cls, 
                                                 layer_sizes: list[int],
-                                                activation_function: ActivationFunction = get_stable_sigmoid_activation(),
+                                                activation_function: ActivationFunction = relu_activation,
+                                                final_activation_function: ActivationFunction | None = None,
                                                 loss_function: LossFunction = squareLossFunction,
                                                 metric_function: MetricFunction | None = None, 
                                                 weights_std: float = 0.1,
                                                 biases_std: float = 0.1
-                                                ) -> "FFNeuralNetwork":
+                                                ) -> "FFNeuralNetwork":#
+        
         processing_layers: list[ProcessingLayer] = [ # expluding the input layer, as no weights or biases
             ProcessingLayer.initialise_with_random_parameters(
                 curr_layer_size=layer_size,
                 prev_layer_size=previous_layer_size,
                 weights_std=weights_std,
-                biases_std=biases_std
+                biases_std=biases_std,
+                activation_function=activation_function
             )
             for previous_layer_size, layer_size in zip(layer_sizes[:-1], layer_sizes[1:])
         ]
 
-        return cls(processing_layers=processing_layers, activation_function=activation_function, loss_function=loss_function, metric_function=metric_function) 
+        if final_activation_function is not None:
+            processing_layers[-1].activation_function = final_activation_function
+
+        return cls(processing_layers=processing_layers, loss_function=loss_function, metric_function=metric_function) 
+    
+    @property
+    def trainable_processing_layers(self) -> filter[ProcessingLayer]:
+        return filter(lambda layer: layer.trainable, self.processing_layers)
 
 
     @jaxtyped(typechecker=beartype)
@@ -130,7 +146,7 @@ class FFNeuralNetwork:
             # (next_layer_size, batch_size) = (next_layer_size, curr_layer_size) @ (curr_layer_size, batch_size) + (next_layer_size, batch_size)
             curr_net_inputs = (next_layer.weights @ curr_layer_activation) + next_layer.biases[:, np.newaxis]
             
-            curr_layer_activation = self.activation_function(curr_net_inputs)
+            curr_layer_activation = next_layer.activation_function(curr_net_inputs)
             FF_Data_list.append(FFLayerData(net_inputs=curr_net_inputs, activations=curr_layer_activation))
 
 
@@ -191,23 +207,10 @@ class Trainer:
     
 
     @jaxtyped(typechecker=beartype)
-    def backward_phase(self, 
-                       ff_data: list[FFLayerData], 
-                       labels: Float64[np.ndarray, "batch_size label_size"],
-                       ):
-        """
-        Do backward phase after FF for a batch_size of instances.
-
-        Args:
-            ff_data: list of FFLayerData returned by feed_forward
-            labels: 2D array, where each row is the label vector of an instance (vectors must match size of output layer)
-        """
-
-        output_layer_data = ff_data[-1]
-
+    def _compute_initial_error_terms(self, output_layer_ff_data: FFLayerData, labels: Float64[np.ndarray, "batch_size label_size"]) -> Float64[np.ndarray, "output_layer_size batch_size"]:
         loss_function = self.model.loss_function
 
-        output_labels = output_layer_data.activations.T
+        output_labels = output_layer_ff_data.activations.T
 
         # (batch_size), (batch_size, output_layer_size) = loss((batch_size, output_layer_size), (batch_size, output_layer_size))
         loss = loss_function(output_labels, labels)
@@ -221,24 +224,53 @@ class Trainer:
 
 
         loss_derivatives = loss_function.derivative(output_labels, labels)
-    
-        # some activation functions derivatives can use the previously computed activations 
-        # (output_layer_size, batch_size) = (output_layer_size, batch_size) * g'((output_layer_size, batch_size)) 
-    
-        assert output_layer_data.net_inputs is not None
-        curr_layer_error_terms = loss_derivatives.T * self.model.activation_function.derivative(output_layer_data.net_inputs, output_layer_data.activations)
+
+        assert output_layer_ff_data.net_inputs is not None
+
+        # (output_layer_size, batch_size) = (batch_size, output_layer_size).T
+        return loss_derivatives.T * self.model.processing_layers[-1].activation_function.derivative(output_layer_ff_data.net_inputs, output_layer_ff_data.activations)
+
+
+
+    @jaxtyped(typechecker=beartype)
+    def backward_phase(self, 
+                       ff_data: list[FFLayerData], 
+                       labels: Float64[np.ndarray, "batch_size label_size"],
+                       ):
+        """
+        Do backward phase after FF for a batch_size of instances.
+
+        Args:
+            ff_data: list of FFLayerData returned by feed_forward
+            labels: 2D array, where each row is the label vector of an instance (vectors must match size of output layer)
+        """
+
+        
+        output_layer_ff_data = ff_data[-1]
+
+        curr_layer_error_terms = self._compute_initial_error_terms(output_layer_ff_data, labels)
+
+        curr_layer = self.model.processing_layers[-1]
 
         gradients_list: deque[LayerGradients] = deque()
 
+        iterator = zip(reversed(ff_data[:-1]), reversed([None] + self.model.processing_layers[:-1]))
         
-        for prev_layer_ff_data, curr_layer in zip(reversed(ff_data[:-1]), reversed(self.model.processing_layers)):
+
+        for prev_layer_ff_data, prev_layer in iterator:
             
-            gradients = self.get_gradients_for_layer(curr_layer_error_terms, prev_layer_ff_data.activations)
-            
-            gradients_list.appendleft(gradients)
+            if curr_layer.trainable:
+                gradients = self.get_gradients_for_layer(curr_layer_error_terms, prev_layer_ff_data.activations)
+                
+                gradients_list.appendleft(gradients)
 
             if prev_layer_ff_data.net_inputs is not None: # if not input layer
-                curr_layer_error_terms = self.backpropagate(curr_layer_error_terms, curr_layer.weights, prev_layer_ff_data)
+                
+                assert prev_layer is not None
+
+                curr_layer_error_terms = self.backpropagate(curr_layer_error_terms, curr_layer.weights, prev_layer.activation_function, prev_layer_ff_data)
+
+                curr_layer = prev_layer 
         
 
         self.gradient_descent(gradients_list)
@@ -247,15 +279,18 @@ class Trainer:
     
     @jaxtyped(typechecker=beartype)
     def backpropagate(self, 
-                      curr_layer_error_terms: Float64[np.ndarray, "curr_layer_size batch_size"], 
+                      curr_layer_error_terms: Float64[np.ndarray, "curr_layer_size batch_size"] | None, 
                       curr_layer_weights: Float64[np.ndarray, "curr_layer_size prev_layer_size"],
+                      prev_layer_activation_funcion: ActivationFunction,
                       prev_ff_layer_data: FFLayerData
                       ) -> Float64[np.ndarray, "prev_layer_size batch_size"]:
+        
+
         
         # NOTE: as said, some activation functions calculate the derivative with their own output 
         # (prev_layer_size, batch_size) = g'((prev_layer_size, batch_size))
         assert prev_ff_layer_data.net_inputs is not None
-        dO_j__dh_j = self.model.activation_function.derivative(prev_ff_layer_data.net_inputs, prev_ff_layer_data.activations) 
+        dO_j__dh_j = prev_layer_activation_funcion.derivative(prev_ff_layer_data.net_inputs, prev_ff_layer_data.activations) 
 
         # (prev_layer_size, batch_size) = (prev_layer_size, curr_layer_size) @ (curr_layer_size, batch_size)
         dL__dO_j = curr_layer_weights.T @ curr_layer_error_terms 
@@ -290,13 +325,13 @@ class Trainer:
 
         if self.momentum_gamma != 0 and self.momentum_gradients is not None:
 
-            for processing_layer, gradients, momentum_gradients in zip(self.model.processing_layers, gradients_list, self.momentum_gradients):
+            for processing_layer, gradients, momentum_gradients in zip(self.model.trainable_processing_layers, gradients_list, self.momentum_gradients):
 
                 processing_layer.weights -= self.learning_rate * gradients.weight_gradients + self.momentum_gamma * momentum_gradients.weight_gradients
                 processing_layer.biases -= self.learning_rate * gradients.bias_gradients + self.momentum_gamma * momentum_gradients.bias_gradients 
         else:
 
-            for processing_layer, gradients in zip(self.model.processing_layers, gradients_list):
+            for processing_layer, gradients in zip(self.model.trainable_processing_layers, gradients_list):
 
                 processing_layer.weights -= self.learning_rate * gradients.weight_gradients
                 processing_layer.biases -= self.learning_rate * gradients.bias_gradients
