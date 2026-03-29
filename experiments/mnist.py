@@ -31,20 +31,20 @@ def get_mnist_data():
 def train_mnist(x_train: np.ndarray, x_test: np.ndarray, y_train: np.ndarray, y_test: np.ndarray) -> FFNeuralNetwork:
     
     model = FFNeuralNetwork.initialise_with_random_small_parameters(
-        layer_sizes=[784, 128, 64, 10],
+        layer_sizes=[784, 256, 128, 10],
         metric_function=categorical_accuracy_metric,
-        activation_function=get_stable_sigmoid_activation(),
-        final_activation_function=get_stable_sigmoid_activation(),
-        loss_function=squareLossFunction,
-        weights_std=0.01
+        activation_function=relu_activation,
+        final_activation_function=softmax_activation,
+        loss_function=cross_entropy_loss_function,
+        weights_std=0.05
     )
 
     model.fit(
         features=x_train,
         labels=y_train,
-        epochs=5,
-        batch_size=64,
-        learning_rate=0.1,
+        epochs=2,
+        batch_size=32,
+        learning_rate=0.01,
         momentum_gamma=0.9
     )
     test_preds = model.predict(x_test)
@@ -73,7 +73,7 @@ def visualise_predictions(model: FFNeuralNetwork, image: np.ndarray) -> None:
 if __name__ == "__main__":
     logging.basicConfig(
     level=logging.INFO,
-    filename=Path(__file__).parent / "log" / "mnist_training.log",
+    filename=Path(__file__).parent / "logs" / "mnist_training.log",
     filemode='w',
 )
     

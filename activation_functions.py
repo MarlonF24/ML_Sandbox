@@ -56,3 +56,15 @@ relu_activation = ActivationFunction(
         _derivative=lambda x: (x > 0).astype(np.float64),
         pass_activations_to_derivative=False
     )
+
+def _softmax(net_inputs: np.ndarray) -> np.ndarray:
+    # shape: layer_size x batch_size
+    exps = np.exp(net_inputs - np.max(net_inputs, axis=0, keepdims=True))
+    return exps / np.sum(exps, axis=0, keepdims=True)
+
+softmax_activation = ActivationFunction(
+    name="Softmax",
+    _function=_softmax,
+    _derivative=lambda x: np.ones_like(x), # Used in combination with categorical cross entropy
+    pass_activations_to_derivative=False
+)

@@ -323,20 +323,35 @@ class Trainer:
     @jaxtyped(typechecker=beartype)
     def gradient_descent(self, gradients_list: Sequence[LayerGradients]) -> None:
 
+        new_momentum: list[LayerGradients] = []
+        
         if self.momentum_gamma != 0 and self.momentum_gradients is not None:
+            
+            for processing_layer, gradients, momentum in zip(self.model.trainable_processing_layers, gradients_list, self.momentum_gradients):
 
-            for processing_layer, gradients, momentum_gradients in zip(self.model.trainable_processing_layers, gradients_list, self.momentum_gradients):
+                v_w = self.momentum_gamma * momentum.weight_gradients + self.learning_rate * gradients.weight_gradients
+                v_b = self.momentum_gamma * momentum.bias_gradients + self.learning_rate * gradients.bias_gradients
+                
+                processing_layer.weights -= v_w
+                processing_layer.biases -= v_b 
+                
+                new_momentum.append(LayerGradients(v_w, v_b))
+                
 
-                processing_layer.weights -= self.learning_rate * gradients.weight_gradients + self.momentum_gamma * momentum_gradients.weight_gradients
-                processing_layer.biases -= self.learning_rate * gradients.bias_gradients + self.momentum_gamma * momentum_gradients.bias_gradients 
         else:
 
             for processing_layer, gradients in zip(self.model.trainable_processing_layers, gradients_list):
 
-                processing_layer.weights -= self.learning_rate * gradients.weight_gradients
-                processing_layer.biases -= self.learning_rate * gradients.bias_gradients
+                v_w = self.learning_rate * gradients.weight_gradients
+                v_b = self.learning_rate * gradients.bias_gradients
+                
+                processing_layer.weights -= v_w
+                processing_layer.biases -= v_b
 
-        self.momentum_gradients = gradients_list
+                new_momentum.append(LayerGradients(v_w, v_b))
+
+                
+        self.momentum_gradients = new_momentum
 
     
 
